@@ -1,0 +1,16 @@
+FROM golang:1.22-alpine
+
+WORKDIR /app
+
+RUN apk add --no-cache gcc musl-dev bash mysql-client git
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Build test binaries
+RUN go test -c -o /app/test_unit ./tests/unit/...  2>/dev/null || true
+RUN go test -c -o /app/test_api ./tests/api/...  2>/dev/null || true
+
+CMD ["bash", "-c", "echo 'Test container ready'"]

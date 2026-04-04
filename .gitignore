@@ -1,0 +1,13 @@
+.tmp/
+.claude/
+.meta/
+# Go
+bin/
+dist/
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+go.sum
