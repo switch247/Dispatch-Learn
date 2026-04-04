@@ -10,4 +10,4 @@ vendor/
 *.dll
 *.so
 *.dylib
-go.sum
+# go.sum
