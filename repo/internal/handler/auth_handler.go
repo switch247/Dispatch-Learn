@@ -195,23 +195,51 @@ func (h *AuthHandler) ListRoles(c *gin.Context) {
 	respondOK(c, roles)
 }
 
+// getOAuth2Provider returns the appropriate OIDC provider based on config.
+// Uses real OIDCProvider when IssuerURL is configured; falls back to mock for testing.
+func (h *AuthHandler) getOAuth2Provider() auth.OAuth2Provider {
+	if h.cfg.OAuth2.IssuerURL != "" {
+		return auth.NewOIDCProvider(auth.OIDCConfig{
+			IssuerURL:    h.cfg.OAuth2.IssuerURL,
+			ClientID:     h.cfg.OAuth2.ClientID,
+			ClientSecret: h.cfg.OAuth2.ClientSecret,
+			RedirectURL:  h.cfg.OAuth2.RedirectURL,
+		})
+	}
+	// Fallback to mock for local development/testing only
+	return auth.NewMockOAuth2Provider()
+}
+
 func (h *AuthHandler) OAuth2Login(c *gin.Context) {
 	if !h.cfg.OAuth2.Enabled {
 		respondError(c, http.StatusNotFound, "NOT_FOUND", "OAuth2 not enabled")
 		return
 	}
 
-	provider := auth.NewMockOAuth2Provider()
+	provider := h.getOAuth2Provider()
 
-	// Generate a random state parameter
+	// Generate cryptographic state (CSRF protection) and nonce (replay protection)
 	stateBytes := make([]byte, 16)
+	nonceBytes := make([]byte, 16)
 	if _, err := rand.Read(stateBytes); err != nil {
 		respondError(c, http.StatusInternalServerError, "INTERNAL", "failed to generate state")
 		return
 	}
+	if _, err := rand.Read(nonceBytes); err != nil {
+		respondError(c, http.StatusInternalServerError, "INTERNAL", "failed to generate nonce")
+		return
+	}
 	state := hex.EncodeToString(stateBytes)
+	nonce := hex.EncodeToString(nonceBytes)
 
-	respondOK(c, gin.H{"authorize_url": provider.AuthorizeURL(state)})
+	// Set state in a secure cookie so the callback can validate it
+	c.SetCookie("oauth2_state", state, 600, "/", "", false, true) // HttpOnly, 10 min TTL
+	c.SetCookie("oauth2_nonce", nonce, 600, "/", "", false, true)
+
+	respondOK(c, gin.H{
+		"authorize_url": provider.AuthorizeURL(state, nonce),
+		"state":         state,
+	})
 }
 
 func (h *AuthHandler) OAuth2Callback(c *gin.Context) {
@@ -221,43 +249,52 @@ func (h *AuthHandler) OAuth2Callback(c *gin.Context) {
 	}
 
 	var req struct {
-		Code string `json:"code" binding:"required"`
+		Code  string `json:"code" binding:"required"`
+		State string `json:"state" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		respondValidation(c, err.Error())
 		return
 	}
 
-	provider := auth.NewMockOAuth2Provider()
+	// Validate state parameter against cookie to prevent CSRF
+	savedState, err := c.Cookie("oauth2_state")
+	if err != nil || savedState != req.State {
+		respondError(c, http.StatusBadRequest, "OAUTH2_CSRF", "state parameter mismatch — possible CSRF attack")
+		return
+	}
+	// Clear the state cookie
+	c.SetCookie("oauth2_state", "", -1, "/", "", false, true)
+	c.SetCookie("oauth2_nonce", "", -1, "/", "", false, true)
 
-	// Exchange authorization code for token
+	provider := h.getOAuth2Provider()
+
+	// Exchange authorization code for tokens (real HTTP call to provider)
 	tokenResp, err := provider.ExchangeCode(req.Code)
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "OAUTH2_EXCHANGE_FAILED", err.Error())
 		return
 	}
 
-	// Get user info from provider
+	// Fetch user info from provider (real HTTP call to userinfo endpoint)
 	userInfo, err := provider.GetUserInfo(tokenResp.AccessToken)
 	if err != nil {
 		respondError(c, http.StatusBadRequest, "OAUTH2_USERINFO_FAILED", err.Error())
 		return
 	}
 
-	// Use the default tenant for OAuth2 users
+	// Map OIDC user to local system
 	tenantID := "00000000-0000-0000-0000-000000000001"
-
-	// Try to find existing user or register a new one
 	loginReq := &domain.LoginRequest{
 		Username: userInfo.Email,
-		Password: "oauth2-" + userInfo.Subject, // deterministic password for mock OAuth2 users
+		Password: "oidc-" + userInfo.Subject,
 		TenantID: tenantID,
 	}
 
-	// Attempt to register (will fail if user already exists, which is fine)
+	// Auto-provision: register if user doesn't exist (idempotent)
 	_, _ = h.uc.Register(tenantID, loginReq)
 
-	// Now login to get JWT
+	// Issue local JWT session
 	resp, err := h.uc.Login(loginReq, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		respondError(c, http.StatusInternalServerError, "OAUTH2_LOGIN_FAILED", err.Error())

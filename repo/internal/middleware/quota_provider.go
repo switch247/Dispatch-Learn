@@ -23,7 +23,7 @@ type cachedQuota struct {
 	fetchedAt    time.Time
 }
 
-const quotaCacheTTL = 1 * time.Minute
+const quotaCacheTTL = 5 * time.Second
 
 func NewDBQuotaProvider(db *gorm.DB) *DBQuotaProvider {
 	return &DBQuotaProvider{

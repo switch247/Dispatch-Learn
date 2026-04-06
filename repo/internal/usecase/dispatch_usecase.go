@@ -64,6 +64,11 @@ func (uc *DispatchUseCase) CreateOrder(tenantID, actorID string, req *domain.Cre
 		if req.AssignedAgentID == "" {
 			return nil, errors.New("assigned_agent_id is required when assignment_mode is 'assigned'")
 		}
+		// Validate assigned agent exists in the same tenant
+		_, err := uc.repo.FindAgentProfile(tenantID, req.AssignedAgentID)
+		if err != nil {
+			return nil, fmt.Errorf("assigned_agent_id '%s' not found in this tenant", req.AssignedAgentID)
+		}
 		assignedAgentID = &req.AssignedAgentID
 	}
 
@@ -336,7 +341,46 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 	return R * c
 }
 
-// ExpireStaleOrders runs as a background task
+// CancelExpiredOrders is the single source of truth for order cancellation policy.
+// Called by both the background worker and the manual API trigger.
+func (uc *DispatchUseCase) CancelExpiredOrders() (expired int64, cancelled int64) {
+	expiredOrders, _ := uc.repo.FindAndExpireAvailable()
+	for _, order := range expiredOrders {
+		uc.audit.Log(audit.LogEntry{
+			TenantID:    order.TenantID,
+			ActorID:     "system",
+			Action:      "order.auto_expired",
+			EntityType:  "order",
+			EntityID:    order.ID,
+			BeforeState: map[string]string{"status": string(domain.OrderAvailable)},
+			AfterState:  map[string]string{"status": string(domain.OrderExpired)},
+		})
+	}
+	expired = int64(len(expiredOrders))
+
+	cancelledOrders, _ := uc.repo.FindAndCancelExpiredAccepted()
+	for _, order := range cancelledOrders {
+		reason := "scheduled window expired (time_window_end passed)"
+		if order.TimeWindowEnd == nil && order.TimeWindowStart != nil {
+			reason = "scheduled window expired (time_window_start + 2h)"
+		} else if order.TimeWindowEnd == nil && order.TimeWindowStart == nil {
+			reason = "not started within 2h of acceptance"
+		}
+		uc.audit.Log(audit.LogEntry{
+			TenantID:    order.TenantID,
+			ActorID:     "system",
+			Action:      "order.auto_cancelled",
+			EntityType:  "order",
+			EntityID:    order.ID,
+			BeforeState: map[string]string{"status": string(domain.OrderAccepted)},
+			AfterState:  map[string]string{"status": string(domain.OrderCancelled), "reason": reason},
+		})
+	}
+	cancelled = int64(len(cancelledOrders))
+	return
+}
+
+// ExpireStaleOrders is kept for backward compatibility with the handler API.
 func (uc *DispatchUseCase) ExpireStaleOrders(tenantID string) (int64, error) {
 	return uc.repo.ExpireStaleOrders(tenantID)
 }

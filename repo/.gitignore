@@ -1,0 +1,34 @@
+# Build artifacts
+server
+*.exe
+*.bin
+*.out
+*.test
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Certificates (mount via volume, never commit)
+certs/*.crt
+certs/*.key
+certs/*.pem
+!certs/.gitkeep
+
+# Go
+vendor/
+
+# Backups and exports (runtime data)
+backups/
+exports/

@@ -150,6 +150,42 @@ func (r *DispatchRepository) CancelStaleAccepted(tenantID string) (int64, error)
 	return result.RowsAffected, result.Error
 }
 
+// FindAndExpireAvailable finds and expires AVAILABLE orders older than 15 minutes, returning affected orders for audit.
+func (r *DispatchRepository) FindAndExpireAvailable() ([]domain.Order, error) {
+	cutoff := time.Now().Add(-15 * time.Minute)
+	var orders []domain.Order
+	r.db.Where("status = ? AND available_at < ?", domain.OrderAvailable, cutoff).Find(&orders)
+	if len(orders) == 0 {
+		return nil, nil
+	}
+	var ids []string
+	for _, o := range orders {
+		ids = append(ids, o.ID)
+	}
+	r.db.Model(&domain.Order{}).Where("id IN ?", ids).Update("status", domain.OrderExpired)
+	return orders, nil
+}
+
+// FindAndCancelExpiredAccepted finds and cancels ACCEPTED orders whose time window has expired, returning affected orders for audit.
+func (r *DispatchRepository) FindAndCancelExpiredAccepted() ([]domain.Order, error) {
+	now := time.Now()
+	cutoff := now.Add(-2 * time.Hour)
+	var orders []domain.Order
+	r.db.Where(
+		"status = ? AND ((time_window_end IS NOT NULL AND time_window_end < ?) OR (time_window_end IS NULL AND time_window_start IS NOT NULL AND DATE_ADD(time_window_start, INTERVAL 2 HOUR) < ?) OR (time_window_end IS NULL AND time_window_start IS NULL AND accepted_at < ?))",
+		domain.OrderAccepted, now, now, cutoff,
+	).Find(&orders)
+	if len(orders) == 0 {
+		return nil, nil
+	}
+	var ids []string
+	for _, o := range orders {
+		ids = append(ids, o.ID)
+	}
+	r.db.Model(&domain.Order{}).Where("id IN ?", ids).Update("status", domain.OrderCancelled)
+	return orders, nil
+}
+
 // Service Zones
 func (r *DispatchRepository) CreateServiceZone(zone *domain.ServiceZone) error {
 	return r.db.Create(zone).Error

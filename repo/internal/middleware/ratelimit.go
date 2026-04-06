@@ -76,10 +76,16 @@ func (rl *RateLimiter) getBucket(tenantID string) *tokenBucket {
 	rl.mu.RUnlock()
 
 	if exists {
-		// Update refill rate if override changed
+		// Update rate and burst from override; clamp tokens to new max
 		bucket.mu.Lock()
 		bucket.refillRate = float64(rpm) / 60.0
-		bucket.maxTokens = float64(burst)
+		newMax := float64(burst)
+		if bucket.maxTokens != newMax {
+			bucket.maxTokens = newMax
+			if bucket.tokens > newMax {
+				bucket.tokens = newMax
+			}
+		}
 		bucket.mu.Unlock()
 		return bucket
 	}

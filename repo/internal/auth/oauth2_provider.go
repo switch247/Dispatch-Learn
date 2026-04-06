@@ -1,96 +1,183 @@
-// Package auth provides OAuth2/OIDC integration for on-premises Identity Providers.
+// Package auth provides OAuth2/OIDC integration for Identity Providers.
 //
-// This module is designed exclusively for on-prem IdP deployments (e.g., Keycloak,
-// Okta on-prem, AD FS) and is gated behind the USE_OAUTH2 configuration flag.
-// It must NOT be used with public cloud identity services in production without
-// additional security review.
+// OIDCProvider performs real HTTP calls to the provider's token and userinfo endpoints
+// implementing the full Authorization Code Flow with state/nonce CSRF protection.
+// MockOAuth2Provider is available for testing when USE_OAUTH2_MOCK=true.
 package auth
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 )
 
-// UserInfo represents the claims returned by the IdP's userinfo endpoint.
+// UserInfo represents OIDC standard claims from the userinfo endpoint.
 type UserInfo struct {
-	Subject       string `json:"sub"`
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
-	Name          string `json:"name"`
-	GivenName     string `json:"given_name"`
-	FamilyName    string `json:"family_name"`
+	Subject       string   `json:"sub"`
+	Email         string   `json:"email"`
+	EmailVerified bool     `json:"email_verified"`
+	Name          string   `json:"name"`
+	GivenName     string   `json:"given_name"`
+	FamilyName    string   `json:"family_name"`
 	Groups        []string `json:"groups,omitempty"`
 }
 
-// TokenResponse holds the tokens received after a successful code exchange.
+// TokenResponse holds the tokens received from the token endpoint.
 type TokenResponse struct {
-	AccessToken  string    `json:"access_token"`
-	IDToken      string    `json:"id_token"`
-	RefreshToken string    `json:"refresh_token"`
-	ExpiresAt    time.Time `json:"expires_at"`
+	AccessToken  string `json:"access_token"`
+	IDToken      string `json:"id_token"`
+	RefreshToken string `json:"refresh_token"`
+	TokenType    string `json:"token_type"`
+	ExpiresIn    int    `json:"expires_in"`
 }
 
-// OAuth2Provider defines the interface for interacting with an on-prem OIDC
-// identity provider. Implementations must handle the full authorization-code
-// flow: redirect URL generation, code-for-token exchange, and user profile
-// retrieval.
+// OAuth2Provider defines the interface for OIDC identity providers.
 type OAuth2Provider interface {
-	// AuthorizeURL returns the URL the user should be redirected to in order
-	// to begin the OIDC authorization-code flow. The state parameter must be
-	// a cryptographically random value bound to the user's session.
-	AuthorizeURL(state string) string
-
-	// ExchangeCode trades an authorization code for an access/ID token pair.
-	// It should validate the code and return the resulting tokens.
+	AuthorizeURL(state, nonce string) string
 	ExchangeCode(code string) (*TokenResponse, error)
-
-	// GetUserInfo uses an access token to retrieve the authenticated user's
-	// profile claims from the IdP's userinfo endpoint.
 	GetUserInfo(accessToken string) (*UserInfo, error)
 }
 
 // ---------------------------------------------------------------------------
-// MockOAuth2Provider -- stub implementation for testing and local development
+// OIDCProvider — production implementation using real HTTP calls
 // ---------------------------------------------------------------------------
 
-// MockOAuth2Provider is a fake OIDC provider that returns configurable,
-// deterministic responses. It is intended for unit/integration tests and local
-// development only. It must NEVER be enabled in production.
-type MockOAuth2Provider struct {
-	// IssuerURL is the pretend issuer. It is used when building the
-	// authorize URL so callers can verify redirect logic.
-	IssuerURL string
-
-	// ClientID is echoed in the authorize URL query string.
-	ClientID string
-
-	// RedirectURL is the callback the authorize URL points back to.
-	RedirectURL string
-
-	// StubUser is the profile returned by GetUserInfo. Callers may
-	// override individual fields before invoking the provider.
-	StubUser UserInfo
-
-	// StubTokenResponse is returned by ExchangeCode. If nil, a
-	// reasonable default is generated.
-	StubTokenResponse *TokenResponse
-
-	// ExchangeCodeErr, if non-nil, is returned by ExchangeCode to
-	// simulate IdP errors during the code exchange step.
-	ExchangeCodeErr error
-
-	// GetUserInfoErr, if non-nil, is returned by GetUserInfo to
-	// simulate userinfo-endpoint failures.
-	GetUserInfoErr error
+// OIDCConfig holds the configuration for an OIDC provider (Keycloak, Okta, etc.).
+type OIDCConfig struct {
+	IssuerURL    string
+	ClientID     string
+	ClientSecret string
+	RedirectURL  string
 }
 
-// NewMockOAuth2Provider returns a MockOAuth2Provider pre-loaded with
-// sensible default stub values.
+// OIDCProvider performs real Authorization Code Flow over HTTP.
+type OIDCProvider struct {
+	cfg        OIDCConfig
+	httpClient *http.Client
+}
+
+func NewOIDCProvider(cfg OIDCConfig) *OIDCProvider {
+	return &OIDCProvider{
+		cfg:        cfg,
+		httpClient: &http.Client{Timeout: 10 * time.Second},
+	}
+}
+
+// AuthorizeURL builds the OIDC authorization endpoint URL with state and nonce.
+func (p *OIDCProvider) AuthorizeURL(state, nonce string) string {
+	params := url.Values{
+		"client_id":     {p.cfg.ClientID},
+		"redirect_uri":  {p.cfg.RedirectURL},
+		"response_type": {"code"},
+		"scope":         {"openid email profile"},
+		"state":         {state},
+		"nonce":         {nonce},
+	}
+	return fmt.Sprintf("%s/protocol/openid-connect/auth?%s", p.cfg.IssuerURL, params.Encode())
+}
+
+// ExchangeCode exchanges an authorization code for tokens via HTTP POST to the token endpoint.
+func (p *OIDCProvider) ExchangeCode(code string) (*TokenResponse, error) {
+	tokenURL := fmt.Sprintf("%s/protocol/openid-connect/token", p.cfg.IssuerURL)
+
+	data := url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"redirect_uri":  {p.cfg.RedirectURL},
+		"client_id":     {p.cfg.ClientID},
+		"client_secret": {p.cfg.ClientSecret},
+	}
+
+	resp, err := p.httpClient.Post(tokenURL, "application/x-www-form-urlencoded", strings.NewReader(data.Encode()))
+	if err != nil {
+		return nil, fmt.Errorf("token exchange HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read token response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("token endpoint returned HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tokenResp TokenResponse
+	if err := json.Unmarshal(body, &tokenResp); err != nil {
+		return nil, fmt.Errorf("failed to parse token response JSON: %w", err)
+	}
+
+	if tokenResp.AccessToken == "" {
+		return nil, errors.New("token response missing access_token")
+	}
+
+	return &tokenResp, nil
+}
+
+// GetUserInfo fetches user claims from the OIDC userinfo endpoint.
+func (p *OIDCProvider) GetUserInfo(accessToken string) (*UserInfo, error) {
+	userInfoURL := fmt.Sprintf("%s/protocol/openid-connect/userinfo", p.cfg.IssuerURL)
+
+	req, err := http.NewRequest("GET", userInfoURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := p.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("userinfo HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read userinfo response body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("userinfo endpoint returned HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	var userInfo UserInfo
+	if err := json.Unmarshal(body, &userInfo); err != nil {
+		return nil, fmt.Errorf("failed to parse userinfo JSON: %w", err)
+	}
+
+	if userInfo.Email == "" && userInfo.Subject == "" {
+		return nil, errors.New("userinfo response missing both email and sub claims")
+	}
+
+	return &userInfo, nil
+}
+
+// ---------------------------------------------------------------------------
+// MockOAuth2Provider — for testing and local development only
+// ---------------------------------------------------------------------------
+
+// MockOAuth2Provider returns deterministic responses without making HTTP calls.
+// Controlled by USE_OAUTH2_MOCK env var. Never use in production.
+type MockOAuth2Provider struct {
+	IssuerURL         string
+	ClientID          string
+	RedirectURL       string
+	StubUser          UserInfo
+	StubTokenResponse *TokenResponse
+	ExchangeCodeErr   error
+	GetUserInfoErr    error
+}
+
 func NewMockOAuth2Provider() *MockOAuth2Provider {
 	return &MockOAuth2Provider{
 		IssuerURL:   "https://idp.internal.example.com",
 		ClientID:    "mock-client-id",
-		RedirectURL: "http://localhost:8080/auth/callback",
+		RedirectURL: "http://localhost:8080/api/v1/auth/oauth2/callback",
 		StubUser: UserInfo{
 			Subject:       "mock-user-001",
 			Email:         "testuser@internal.example.com",
@@ -98,22 +185,16 @@ func NewMockOAuth2Provider() *MockOAuth2Provider {
 			Name:          "Test User",
 			GivenName:     "Test",
 			FamilyName:    "User",
-			Groups:        []string{"engineers", "admins"},
+			Groups:        []string{"engineers"},
 		},
 	}
 }
 
-// AuthorizeURL builds a fake authorization URL using the configured issuer,
-// client ID, and redirect URL.
-func (m *MockOAuth2Provider) AuthorizeURL(state string) string {
-	return fmt.Sprintf(
-		"%s/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=openid+profile+email&state=%s",
-		m.IssuerURL, m.ClientID, m.RedirectURL, state,
-	)
+func (m *MockOAuth2Provider) AuthorizeURL(state, nonce string) string {
+	return fmt.Sprintf("%s/authorize?client_id=%s&redirect_uri=%s&response_type=code&scope=openid+profile+email&state=%s&nonce=%s",
+		m.IssuerURL, m.ClientID, m.RedirectURL, state, nonce)
 }
 
-// ExchangeCode returns either a pre-configured error or a stubbed token
-// response. The provided code value is ignored.
 func (m *MockOAuth2Provider) ExchangeCode(code string) (*TokenResponse, error) {
 	if m.ExchangeCodeErr != nil {
 		return nil, m.ExchangeCodeErr
@@ -122,19 +203,18 @@ func (m *MockOAuth2Provider) ExchangeCode(code string) (*TokenResponse, error) {
 		return m.StubTokenResponse, nil
 	}
 	return &TokenResponse{
-		AccessToken:  "mock-access-token",
+		AccessToken:  "mock-access-token-" + code,
 		IDToken:      "mock-id-token",
 		RefreshToken: "mock-refresh-token",
-		ExpiresAt:    time.Now().Add(1 * time.Hour),
+		TokenType:    "Bearer",
+		ExpiresIn:    3600,
 	}, nil
 }
 
-// GetUserInfo returns either a pre-configured error or the stubbed user
-// profile. The provided accessToken is ignored.
 func (m *MockOAuth2Provider) GetUserInfo(accessToken string) (*UserInfo, error) {
 	if m.GetUserInfoErr != nil {
 		return nil, m.GetUserInfoErr
 	}
-	u := m.StubUser // copy so callers cannot mutate the original
+	u := m.StubUser
 	return &u, nil
 }

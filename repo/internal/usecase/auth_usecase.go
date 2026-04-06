@@ -258,6 +258,11 @@ var roleAssignmentMatrix = map[string]map[string]bool{
 }
 
 func (uc *AuthUseCase) AssignRole(tenantID, actorID, userID, roleName string) error {
+	// Prevent self-role modification
+	if actorID == userID {
+		return errors.New("FORBIDDEN: users cannot modify their own roles")
+	}
+
 	// Fetch actor to check their roles for escalation prevention
 	actor, err := uc.repo.FindUserByID(tenantID, actorID)
 	if err != nil {

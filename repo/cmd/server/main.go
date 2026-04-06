@@ -101,7 +101,7 @@ func main() {
 	systemH := handler.NewSystemHandler(reportUC, webhookUC)
 
 	// Start background expiry worker (runs every 5 minutes)
-	expiryWorker := worker.NewExpiryWorker(db, auditSvc, 5*time.Minute)
+	expiryWorker := worker.NewExpiryWorker(dispatchUC, 5*time.Minute)
 	expiryWorker.Start()
 	defer expiryWorker.Stop()
 

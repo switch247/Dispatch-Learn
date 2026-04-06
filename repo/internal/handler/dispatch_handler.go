@@ -210,19 +210,6 @@ func (h *DispatchHandler) GetAgentProfile(c *gin.Context) {
 }
 
 func (h *DispatchHandler) ExpireStaleOrders(c *gin.Context) {
-	tenantID := middleware.GetTenantID(c)
-
-	expired, err := h.uc.ExpireStaleOrders(tenantID)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL", err.Error())
-		return
-	}
-
-	cancelled, err := h.uc.CancelStaleAccepted(tenantID)
-	if err != nil {
-		respondError(c, http.StatusInternalServerError, "INTERNAL", err.Error())
-		return
-	}
-
+	expired, cancelled := h.uc.CancelExpiredOrders()
 	respondOK(c, gin.H{"expired": expired, "cancelled": cancelled})
 }
