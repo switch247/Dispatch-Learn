@@ -1,5 +1,3 @@
-Below are up to 15 concise clarification questions derived from the original prompt, each with context, my understanding, and a suggested solution.
-
 1) Question: Tenant isolation strategy?
 - Context: Backup/restore, migrations, query enforcement, and audit boundaries depend on this.
 - My understanding: The prompt requires `tenant_id` on every table but doesn't specify DB-per-tenant vs single DB.
@@ -74,5 +72,3 @@ Below are up to 15 concise clarification questions derived from the original pro
 - Context: Hash(previous_hash + current_record) required and retention 7 years.
 - My understanding: Storage medium and verification process unspecified.
 - Suggested solution: Implement chained SHA-256 hashes stored in `AuditLogs` with `previous_hash`; provide a CLI `verify-audit` tool to validate chain integrity; rotate archive to secure offline storage with retention metadata.
-
-Would you like me to (A) apply any of the suggested defaults into `ASSUMPTIONS.md`, or (B) adjust specific recommendations before I generate the file?
