@@ -2,13 +2,32 @@
 
 A production-grade, offline-first field service + LMS + settlement platform built with Go (Gin), GORM, and MySQL.
 
-## Quick Start
+## Quick Start (Development)
 
 ```bash
+# Development mode (TLS disabled via docker-compose override)
 docker-compose up --build
 ```
 
 The API will be available at `http://localhost:8080`.
+
+## Quick Start (Production / TLS)
+
+TLS is **enabled by default** (`ENABLE_TLS=true`). For production or local TLS testing:
+
+```bash
+# 1. Generate self-signed certificates (or use mkcert for local dev)
+mkdir -p certs
+openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt \
+  -days 365 -nodes -subj "/CN=localhost"
+
+# 2. Start with TLS enabled
+ENABLE_TLS=true docker-compose up --build
+```
+
+The API will be available at `https://localhost:443`.
+
+> **Note:** The application will refuse to start if `ENABLE_TLS=true` but certificate files are missing. The docker-compose.yml sets `ENABLE_TLS=false` for development convenience.
 
 ## Default Credentials
 

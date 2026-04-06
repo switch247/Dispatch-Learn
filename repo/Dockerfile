@@ -25,11 +25,15 @@ WORKDIR /app
 COPY --from=builder /app/server /app/server
 COPY --from=builder /app/scripts /app/scripts
 
-# Download Swagger UI assets for offline use
+# Download Swagger UI assets for offline use (best-effort; falls back to CDN in HTML if unavailable)
 RUN apk add --no-cache curl && \
     mkdir -p /app/static/swagger && \
-    curl -sL "https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" -o /app/static/swagger/swagger-ui-bundle.js && \
-    curl -sL "https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" -o /app/static/swagger/swagger-ui.css && \
+    (curl -sfL --connect-timeout 10 "https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" -o /app/static/swagger/swagger-ui-bundle.js || \
+     curl -sfL --connect-timeout 10 "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui-bundle.js" -o /app/static/swagger/swagger-ui-bundle.js || \
+     echo '/* swagger-ui-bundle.js unavailable at build time */' > /app/static/swagger/swagger-ui-bundle.js) && \
+    (curl -sfL --connect-timeout 10 "https://unpkg.com/swagger-ui-dist@5.17.14/swagger-ui.css" -o /app/static/swagger/swagger-ui.css || \
+     curl -sfL --connect-timeout 10 "https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.17.14/swagger-ui.css" -o /app/static/swagger/swagger-ui.css || \
+     echo '/* swagger-ui.css unavailable at build time */' > /app/static/swagger/swagger-ui.css) && \
     apk del curl
 
 # Create directories

@@ -51,7 +51,7 @@ func (w *ExpiryWorker) run() {
 }
 
 func (w *ExpiryWorker) process() {
-	expired, cancelled := w.dispatchUC.CancelExpiredOrders()
+	expired, cancelled := w.dispatchUC.CancelExpiredOrdersInternal()
 
 	if expired > 0 || cancelled > 0 {
 		logging.Info("worker", "expiry",

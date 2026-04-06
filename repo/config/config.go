@@ -106,7 +106,7 @@ func Load() *Config {
 			WebhookDailyLimit: getEnvInt("QUOTA_WEBHOOK_DAILY", 10000),
 		},
 		TLS: TLSConfig{
-			Enabled:  getEnvBool("ENABLE_TLS", false),
+			Enabled:  getEnvBool("ENABLE_TLS", true),
 			CertFile: getEnv("TLS_CERT_FILE", ""),
 			KeyFile:  getEnv("TLS_KEY_FILE", ""),
 		},

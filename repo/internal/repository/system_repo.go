@@ -154,5 +154,7 @@ func (r *SystemRepository) FindQuotaOverride(tenantID string) (*domain.QuotaOver
 }
 
 func (r *SystemRepository) UpsertQuotaOverride(override *domain.QuotaOverride) error {
-	return r.db.Save(override).Error
+	// Delete existing override for this tenant, then create new one (true upsert)
+	r.db.Where("tenant_id = ?", override.TenantID).Delete(&domain.QuotaOverride{})
+	return r.db.Create(override).Error
 }

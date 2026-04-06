@@ -341,10 +341,15 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 	return R * c
 }
 
-// CancelExpiredOrders is the single source of truth for order cancellation policy.
-// Called by both the background worker and the manual API trigger.
-// Iterates all tenants to ensure tenant-isolated processing.
-func (uc *DispatchUseCase) CancelExpiredOrders() (expired int64, cancelled int64) {
+// CancelExpiredOrdersForTenant is the tenant-scoped entry point used by the API handler.
+// Only processes orders belonging to the specified tenant.
+func (uc *DispatchUseCase) CancelExpiredOrdersForTenant(tenantID string) (expired int64, cancelled int64) {
+	return uc.cancelExpiredForTenant(tenantID)
+}
+
+// CancelExpiredOrdersInternal is used exclusively by the background worker.
+// Iterates all tenants — must never be exposed via an API endpoint.
+func (uc *DispatchUseCase) CancelExpiredOrdersInternal() (expired int64, cancelled int64) {
 	tenantIDs, err := uc.repo.ListDistinctTenantIDs()
 	if err != nil {
 		return 0, 0
