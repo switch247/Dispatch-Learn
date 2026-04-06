@@ -203,11 +203,15 @@ func (r *DispatchRepository) AvgCompletionMinutes(tenantID string) (float64, err
 	return result.Avg, err
 }
 
-// CountReturnedOrders counts cancelled orders that were previously completed (returns).
+// CountReturnedOrders counts cancelled orders explicitly tagged as return-related.
 func (r *DispatchRepository) CountReturnedOrders(tenantID string) (int64, error) {
 	var count int64
 	err := r.db.Model(&domain.Order{}).
-		Where("tenant_id = ? AND status = ?", tenantID, domain.OrderCancelled).
+		Where(`tenant_id = ? AND status = ?
+			AND (
+				LOWER(category) LIKE '%return%'
+				OR LOWER(override_reason) LIKE '%return%'
+			)`, tenantID, domain.OrderCancelled).
 		Count(&count).Error
 	return count, err
 }

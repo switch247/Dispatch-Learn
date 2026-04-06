@@ -29,7 +29,6 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8080:8080"
-      - "443:443"
     environment:
       SERVER_PORT: "8080"
       GIN_MODE: "release"
@@ -41,7 +40,7 @@ services:
       JWT_SECRET: "dispatchlearn-jwt-secret-change-in-production"
       JWT_MAX_SESSIONS: "10"
       ENCRYPTION_MASTER_KEY: "0123456789abcdef0123456789abcdef"
-      ENABLE_TLS: "false"
+      ENABLE_TLS: "${ENABLE_TLS:-true}"
       TLS_CERT_FILE: "/certs/server.crt"
       TLS_KEY_FILE: "/certs/server.key"
       QUOTA_RPM: "600"

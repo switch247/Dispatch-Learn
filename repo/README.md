@@ -2,11 +2,21 @@
 
 A production-grade, offline-first field service + LMS + settlement platform built with Go (Gin), GORM, and MySQL.
 
-## Quick Start (Development)
+## Quick Start (Default: TLS Enabled)
 
 ```bash
-# Development mode (TLS disabled via docker-compose override)
+# Starts the stack with TLS enabled by default
 docker-compose up --build
+```
+
+The API will be available at `https://localhost:8080`.
+
+## Quick Start (Local HTTP Opt-Out)
+
+If you need plain HTTP for local debugging tools, explicitly disable TLS:
+
+```bash
+ENABLE_TLS=false docker-compose up --build
 ```
 
 The API will be available at `http://localhost:8080`.
@@ -25,9 +35,9 @@ openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.cr
 ENABLE_TLS=true docker-compose up --build
 ```
 
-The API will be available at `https://localhost:443`.
+The API will be available at `https://localhost:8080`.
 
-> **Note:** The application will refuse to start if `ENABLE_TLS=true` but certificate files are missing. The docker-compose.yml sets `ENABLE_TLS=false` for development convenience.
+> **Note:** The application will refuse to start if `ENABLE_TLS=true` but certificate files are missing.
 
 ## Default Credentials
 
@@ -126,7 +136,7 @@ All defined in `docker-compose.yml`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| SERVER_PORT | 8080 | HTTP port |
+| SERVER_PORT | 8080 | API listen port |
 | GIN_MODE | release | Gin mode |
 | DB_HOST | mysql | MySQL host |
 | DB_PORT | 3306 | MySQL port |
@@ -136,7 +146,7 @@ All defined in `docker-compose.yml`:
 | JWT_SECRET | (set) | JWT signing secret |
 | JWT_MAX_SESSIONS | 10 | Max sessions per user |
 | ENCRYPTION_MASTER_KEY | (set) | AES-256 master key |
-| ENABLE_TLS | false | Enable TLS |
+| ENABLE_TLS | true | Enable TLS |
 | QUOTA_RPM | 600 | Rate limit per minute |
 | QUOTA_BURST | 120 | Burst limit |
 | QUOTA_WEBHOOK_DAILY | 10000 | Webhook daily cap |

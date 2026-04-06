@@ -187,7 +187,7 @@ func (uc *ReportUseCase) calculateKPIs(tenantID string, params map[string]string
 		}
 	}
 
-	// Returns rate (cancelled as proportion of total)
+	// Returns rate (return-tagged cancelled orders as proportion of total)
 	returnsCount, _ := uc.dispatchRepo.CountReturnedOrders(tenantID)
 	if totalCount > 0 {
 		kpi.ReturnRate = float64(returnsCount) / float64(totalCount) * 100

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"dispatchlearn/internal/auth"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -361,18 +363,28 @@ func TestOAuth2Endpoints(t *testing.T) {
 // These test the handler's getOAuth2Provider() logic indirectly through config validation.
 func TestOAuth2ConfigBranches(t *testing.T) {
 	t.Run("mock provider returns well-formed authorize URL", func(t *testing.T) {
-		// This validates that the mock provider interface contract is correct
-		// (same interface as real OIDC provider)
-		// The server uses USE_OAUTH2_MOCK=true to select this path
-		// When enabled with mock: authorize URL contains required OIDC params
-		assert.True(t, true, "mock provider contract validated via compilation and interface conformance")
+		provider := auth.NewMockOAuth2Provider()
+		authorizeURL := provider.AuthorizeURL("state-123", "nonce-456")
+
+		assert.Contains(t, authorizeURL, "response_type=code")
+		assert.Contains(t, authorizeURL, "scope=openid+profile+email")
+		assert.Contains(t, authorizeURL, "state=state-123")
+		assert.Contains(t, authorizeURL, "nonce=nonce-456")
 	})
 
-	t.Run("missing issuer URL with mock=false would fail closed", func(t *testing.T) {
-		// Per auth_handler.go getOAuth2Provider():
-		// if !MockMode && IssuerURL == "" → returns error (fail-closed)
-		// This is a design assertion — the code path exists and returns fmt.Errorf
-		assert.True(t, true, "fail-closed behavior validated via code review")
+	t.Run("real provider builds OIDC authorize URL shape", func(t *testing.T) {
+		provider := auth.NewOIDCProvider(auth.OIDCConfig{
+			IssuerURL:   "https://idp.example.com",
+			ClientID:    "client-123",
+			RedirectURL: "https://app.example.com/oauth2/callback",
+		})
+		authorizeURL := provider.AuthorizeURL("state-abc", "nonce-def")
+
+		assert.Contains(t, authorizeURL, "https://idp.example.com/protocol/openid-connect/auth?")
+		assert.Contains(t, authorizeURL, "client_id=client-123")
+		assert.Contains(t, authorizeURL, "response_type=code")
+		assert.Contains(t, authorizeURL, "state=state-abc")
+		assert.Contains(t, authorizeURL, "nonce=nonce-def")
 	})
 }
 
