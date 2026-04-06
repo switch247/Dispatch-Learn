@@ -3,6 +3,7 @@ package handler
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -196,18 +197,24 @@ func (h *AuthHandler) ListRoles(c *gin.Context) {
 }
 
 // getOAuth2Provider returns the appropriate OIDC provider based on config.
-// Uses real OIDCProvider when IssuerURL is configured; falls back to mock for testing.
-func (h *AuthHandler) getOAuth2Provider() auth.OAuth2Provider {
-	if h.cfg.OAuth2.IssuerURL != "" {
-		return auth.NewOIDCProvider(auth.OIDCConfig{
-			IssuerURL:    h.cfg.OAuth2.IssuerURL,
-			ClientID:     h.cfg.OAuth2.ClientID,
-			ClientSecret: h.cfg.OAuth2.ClientSecret,
-			RedirectURL:  h.cfg.OAuth2.RedirectURL,
-		})
+// Returns error if OAuth2 is enabled but misconfigured (no auto-fallback to mock).
+func (h *AuthHandler) getOAuth2Provider() (auth.OAuth2Provider, error) {
+	// Explicit mock mode: USE_OAUTH2_MOCK=true (for testing/dev only)
+	if h.cfg.OAuth2.MockMode {
+		return auth.NewMockOAuth2Provider(), nil
 	}
-	// Fallback to mock for local development/testing only
-	return auth.NewMockOAuth2Provider()
+
+	// Production: require real IssuerURL
+	if h.cfg.OAuth2.IssuerURL == "" {
+		return nil, fmt.Errorf("OAuth2 is enabled but OAUTH2_ISSUER_URL is not configured. Set USE_OAUTH2_MOCK=true for testing")
+	}
+
+	return auth.NewOIDCProvider(auth.OIDCConfig{
+		IssuerURL:    h.cfg.OAuth2.IssuerURL,
+		ClientID:     h.cfg.OAuth2.ClientID,
+		ClientSecret: h.cfg.OAuth2.ClientSecret,
+		RedirectURL:  h.cfg.OAuth2.RedirectURL,
+	}), nil
 }
 
 func (h *AuthHandler) OAuth2Login(c *gin.Context) {
@@ -216,7 +223,11 @@ func (h *AuthHandler) OAuth2Login(c *gin.Context) {
 		return
 	}
 
-	provider := h.getOAuth2Provider()
+	provider, err := h.getOAuth2Provider()
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "OAUTH2_CONFIG_ERROR", err.Error())
+		return
+	}
 
 	// Generate cryptographic state (CSRF protection) and nonce (replay protection)
 	stateBytes := make([]byte, 16)
@@ -232,9 +243,10 @@ func (h *AuthHandler) OAuth2Login(c *gin.Context) {
 	state := hex.EncodeToString(stateBytes)
 	nonce := hex.EncodeToString(nonceBytes)
 
-	// Set state in a secure cookie so the callback can validate it
-	c.SetCookie("oauth2_state", state, 600, "/", "", false, true) // HttpOnly, 10 min TTL
-	c.SetCookie("oauth2_nonce", nonce, 600, "/", "", false, true)
+	// Set state in a secure, HttpOnly cookie for CSRF validation
+	secure := h.cfg.TLS.Enabled
+	c.SetCookie("oauth2_state", state, 600, "/", "", secure, true)
+	c.SetCookie("oauth2_nonce", nonce, 600, "/", "", secure, true)
 
 	respondOK(c, gin.H{
 		"authorize_url": provider.AuthorizeURL(state, nonce),
@@ -263,11 +275,16 @@ func (h *AuthHandler) OAuth2Callback(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "OAUTH2_CSRF", "state parameter mismatch — possible CSRF attack")
 		return
 	}
-	// Clear the state cookie
-	c.SetCookie("oauth2_state", "", -1, "/", "", false, true)
-	c.SetCookie("oauth2_nonce", "", -1, "/", "", false, true)
+	// Clear the state cookies
+	secure := h.cfg.TLS.Enabled
+	c.SetCookie("oauth2_state", "", -1, "/", "", secure, true)
+	c.SetCookie("oauth2_nonce", "", -1, "/", "", secure, true)
 
-	provider := h.getOAuth2Provider()
+	provider, provErr := h.getOAuth2Provider()
+	if provErr != nil {
+		respondError(c, http.StatusInternalServerError, "OAUTH2_CONFIG_ERROR", provErr.Error())
+		return
+	}
 
 	// Exchange authorization code for tokens (real HTTP call to provider)
 	tokenResp, err := provider.ExchangeCode(req.Code)

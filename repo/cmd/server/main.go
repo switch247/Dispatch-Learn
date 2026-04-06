@@ -234,26 +234,18 @@ func main() {
 	logging.Info("server", "start", "Listening on "+addr)
 
 	if cfg.TLS.Enabled {
+		// When TLS is enabled, certificates are mandatory — no HTTP fallback
 		if cfg.TLS.CertFile == "" || cfg.TLS.KeyFile == "" {
-			// In production (release mode), TLS certs are mandatory
-			if cfg.Server.Mode == "release" {
-				logging.Error("server", "tls", "TLS is enabled but TLS_CERT_FILE and TLS_KEY_FILE are required in production. Set ENABLE_TLS=false for development.")
-				os.Exit(1)
-			}
-			// In non-production modes, fall back to plain HTTP with a warning
-			logging.Warn("server", "tls", "TLS enabled but cert/key missing — falling back to plain HTTP (non-production mode)")
-			if err := r.Run(addr); err != nil {
-				logging.Error("server", "start", "Server failed: "+err.Error())
-				os.Exit(1)
-			}
-		} else {
-			logging.Info("server", "tls", "Starting with TLS on "+addr)
-			if err := r.RunTLS(addr, cfg.TLS.CertFile, cfg.TLS.KeyFile); err != nil {
-				logging.Error("server", "start", "TLS server failed: "+err.Error())
-				os.Exit(1)
-			}
+			logging.Error("server", "tls", "FATAL: TLS is enabled but TLS_CERT_FILE and TLS_KEY_FILE are missing. Cannot start. Set ENABLE_TLS=false to disable TLS.")
+			os.Exit(1)
+		}
+		logging.Info("server", "tls", "Starting with TLS on "+addr)
+		if err := r.RunTLS(addr, cfg.TLS.CertFile, cfg.TLS.KeyFile); err != nil {
+			logging.Error("server", "start", "TLS server failed: "+err.Error())
+			os.Exit(1)
 		}
 	} else {
+		// TLS disabled — plain HTTP (for development/testing only)
 		if err := r.Run(addr); err != nil {
 			logging.Error("server", "start", "Server failed: "+err.Error())
 			os.Exit(1)

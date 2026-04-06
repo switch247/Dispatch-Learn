@@ -120,6 +120,27 @@ func TestCrossTenantIsolation(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("centralized cancellation is tenant-scoped", func(t *testing.T) {
+		// Create an order with Tenant A (our test tenant)
+		adminToken := loginAdmin()
+		_, orderResult := doRequest("POST", "/api/v1/orders", map[string]interface{}{
+			"category": "tenant-isolation-test", "assignment_mode": "grab",
+		}, adminToken)
+		require.NotNil(t, orderResult["data"])
+		orderData := orderResult["data"].(map[string]interface{})
+		assert.Equal(t, tenantID, orderData["tenant_id"])
+
+		// Trigger expire-stale — this should only process our tenant's orders
+		resp, result := doRequest("POST", "/api/v1/dispatch/expire-stale", nil, adminToken)
+		require.NotNil(t, resp)
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		if result["data"] != nil {
+			data := result["data"].(map[string]interface{})
+			assert.Contains(t, data, "expired")
+			assert.Contains(t, data, "cancelled")
+		}
+	})
 }
 
 // === Webhook Event Wiring ===

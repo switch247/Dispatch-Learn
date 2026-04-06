@@ -179,15 +179,18 @@ func (uc *ReportUseCase) calculateKPIs(tenantID string, params map[string]string
 	kpi.TotalTaxCollected = totalTax
 	kpi.NetSettlement = totalRevenue - totalTax
 
-	// Efficiency KPIs - average completion time
+	// Efficiency KPIs - average delivery duration (window_start to completed_at)
 	if completedCount > 0 {
-		// Note: We'd need a more complex query for real avg; approximation based on counts
-		kpi.AvgCompletionMinutes = 0 // Placeholder - populated from order data below
+		avgMinutes, err := uc.dispatchRepo.AvgCompletionMinutes(tenantID)
+		if err == nil {
+			kpi.AvgCompletionMinutes = avgMinutes
+		}
 	}
 
-	// Return/cancellation rate (cancelled orders as % of total non-pending)
+	// Returns rate (cancelled as proportion of total)
+	returnsCount, _ := uc.dispatchRepo.CountReturnedOrders(tenantID)
 	if totalCount > 0 {
-		kpi.ReturnRate = float64(cancelledCount) / float64(totalCount) * 100
+		kpi.ReturnRate = float64(returnsCount) / float64(totalCount) * 100
 	}
 
 	return kpi, nil

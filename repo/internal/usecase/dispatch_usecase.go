@@ -343,11 +343,27 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 
 // CancelExpiredOrders is the single source of truth for order cancellation policy.
 // Called by both the background worker and the manual API trigger.
+// Iterates all tenants to ensure tenant-isolated processing.
 func (uc *DispatchUseCase) CancelExpiredOrders() (expired int64, cancelled int64) {
-	expiredOrders, _ := uc.repo.FindAndExpireAvailable()
+	tenantIDs, err := uc.repo.ListDistinctTenantIDs()
+	if err != nil {
+		return 0, 0
+	}
+
+	for _, tenantID := range tenantIDs {
+		e, c := uc.cancelExpiredForTenant(tenantID)
+		expired += e
+		cancelled += c
+	}
+	return
+}
+
+// cancelExpiredForTenant processes expiry/cancellation for a single tenant.
+func (uc *DispatchUseCase) cancelExpiredForTenant(tenantID string) (expired int64, cancelled int64) {
+	expiredOrders, _ := uc.repo.FindAndExpireAvailable(tenantID)
 	for _, order := range expiredOrders {
 		uc.audit.Log(audit.LogEntry{
-			TenantID:    order.TenantID,
+			TenantID:    tenantID,
 			ActorID:     "system",
 			Action:      "order.auto_expired",
 			EntityType:  "order",
@@ -358,7 +374,7 @@ func (uc *DispatchUseCase) CancelExpiredOrders() (expired int64, cancelled int64
 	}
 	expired = int64(len(expiredOrders))
 
-	cancelledOrders, _ := uc.repo.FindAndCancelExpiredAccepted()
+	cancelledOrders, _ := uc.repo.FindAndCancelExpiredAccepted(tenantID)
 	for _, order := range cancelledOrders {
 		reason := "scheduled window expired (time_window_end passed)"
 		if order.TimeWindowEnd == nil && order.TimeWindowStart != nil {
@@ -367,7 +383,7 @@ func (uc *DispatchUseCase) CancelExpiredOrders() (expired int64, cancelled int64
 			reason = "not started within 2h of acceptance"
 		}
 		uc.audit.Log(audit.LogEntry{
-			TenantID:    order.TenantID,
+			TenantID:    tenantID,
 			ActorID:     "system",
 			Action:      "order.auto_cancelled",
 			EntityType:  "order",

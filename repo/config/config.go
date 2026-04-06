@@ -22,6 +22,7 @@ type Config struct {
 // integration, gated by the Enabled flag (env: USE_OAUTH2).
 type OAuth2Config struct {
 	Enabled      bool
+	MockMode     bool   // USE_OAUTH2_MOCK - if true, use mock provider for testing; if false, require real IssuerURL
 	IssuerURL    string
 	ClientID     string
 	ClientSecret string
@@ -116,6 +117,7 @@ func Load() *Config {
 		},
 		OAuth2: OAuth2Config{
 			Enabled:      getEnvBool("USE_OAUTH2", false),
+			MockMode:     getEnvBool("USE_OAUTH2_MOCK", false),
 			IssuerURL:    getEnv("OAUTH2_ISSUER_URL", ""),
 			ClientID:     getEnv("OAUTH2_CLIENT_ID", ""),
 			ClientSecret: getEnv("OAUTH2_CLIENT_SECRET", ""),

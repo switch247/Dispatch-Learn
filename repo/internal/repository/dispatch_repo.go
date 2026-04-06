@@ -150,11 +150,11 @@ func (r *DispatchRepository) CancelStaleAccepted(tenantID string) (int64, error)
 	return result.RowsAffected, result.Error
 }
 
-// FindAndExpireAvailable finds and expires AVAILABLE orders older than 15 minutes, returning affected orders for audit.
-func (r *DispatchRepository) FindAndExpireAvailable() ([]domain.Order, error) {
+// FindAndExpireAvailable finds and expires AVAILABLE orders older than 15 minutes for a specific tenant.
+func (r *DispatchRepository) FindAndExpireAvailable(tenantID string) ([]domain.Order, error) {
 	cutoff := time.Now().Add(-15 * time.Minute)
 	var orders []domain.Order
-	r.db.Where("status = ? AND available_at < ?", domain.OrderAvailable, cutoff).Find(&orders)
+	r.db.Where("tenant_id = ? AND status = ? AND available_at < ?", tenantID, domain.OrderAvailable, cutoff).Find(&orders)
 	if len(orders) == 0 {
 		return nil, nil
 	}
@@ -162,18 +162,18 @@ func (r *DispatchRepository) FindAndExpireAvailable() ([]domain.Order, error) {
 	for _, o := range orders {
 		ids = append(ids, o.ID)
 	}
-	r.db.Model(&domain.Order{}).Where("id IN ?", ids).Update("status", domain.OrderExpired)
+	r.db.Model(&domain.Order{}).Where("tenant_id = ? AND id IN ?", tenantID, ids).Update("status", domain.OrderExpired)
 	return orders, nil
 }
 
-// FindAndCancelExpiredAccepted finds and cancels ACCEPTED orders whose time window has expired, returning affected orders for audit.
-func (r *DispatchRepository) FindAndCancelExpiredAccepted() ([]domain.Order, error) {
+// FindAndCancelExpiredAccepted finds and cancels ACCEPTED orders whose time window has expired for a specific tenant.
+func (r *DispatchRepository) FindAndCancelExpiredAccepted(tenantID string) ([]domain.Order, error) {
 	now := time.Now()
 	cutoff := now.Add(-2 * time.Hour)
 	var orders []domain.Order
 	r.db.Where(
-		"status = ? AND ((time_window_end IS NOT NULL AND time_window_end < ?) OR (time_window_end IS NULL AND time_window_start IS NOT NULL AND DATE_ADD(time_window_start, INTERVAL 2 HOUR) < ?) OR (time_window_end IS NULL AND time_window_start IS NULL AND accepted_at < ?))",
-		domain.OrderAccepted, now, now, cutoff,
+		"tenant_id = ? AND status = ? AND ((time_window_end IS NOT NULL AND time_window_end < ?) OR (time_window_end IS NULL AND time_window_start IS NOT NULL AND DATE_ADD(time_window_start, INTERVAL 2 HOUR) < ?) OR (time_window_end IS NULL AND time_window_start IS NULL AND accepted_at < ?))",
+		tenantID, domain.OrderAccepted, now, now, cutoff,
 	).Find(&orders)
 	if len(orders) == 0 {
 		return nil, nil
@@ -182,8 +182,34 @@ func (r *DispatchRepository) FindAndCancelExpiredAccepted() ([]domain.Order, err
 	for _, o := range orders {
 		ids = append(ids, o.ID)
 	}
-	r.db.Model(&domain.Order{}).Where("id IN ?", ids).Update("status", domain.OrderCancelled)
+	r.db.Model(&domain.Order{}).Where("tenant_id = ? AND id IN ?", tenantID, ids).Update("status", domain.OrderCancelled)
 	return orders, nil
+}
+
+// ListDistinctTenantIDs returns all distinct tenant IDs from the orders table.
+func (r *DispatchRepository) ListDistinctTenantIDs() ([]string, error) {
+	var tenantIDs []string
+	err := r.db.Model(&domain.Order{}).Distinct("tenant_id").Pluck("tenant_id", &tenantIDs).Error
+	return tenantIDs, err
+}
+
+// AvgCompletionMinutes calculates the average duration from time_window_start (or created_at) to completed_at for completed orders.
+func (r *DispatchRepository) AvgCompletionMinutes(tenantID string) (float64, error) {
+	var result struct{ Avg float64 }
+	err := r.db.Model(&domain.Order{}).
+		Select("COALESCE(AVG(TIMESTAMPDIFF(MINUTE, COALESCE(time_window_start, created_at), completed_at)), 0) as avg").
+		Where("tenant_id = ? AND status = ? AND completed_at IS NOT NULL", tenantID, domain.OrderCompleted).
+		Scan(&result).Error
+	return result.Avg, err
+}
+
+// CountReturnedOrders counts cancelled orders that were previously completed (returns).
+func (r *DispatchRepository) CountReturnedOrders(tenantID string) (int64, error) {
+	var count int64
+	err := r.db.Model(&domain.Order{}).
+		Where("tenant_id = ? AND status = ?", tenantID, domain.OrderCancelled).
+		Count(&count).Error
+	return count, err
 }
 
 // Service Zones
