@@ -1,4 +1,3 @@
-.tmp/
 .claude/
 .meta/
 # Go
@@ -10,4 +9,6 @@ vendor/
 *.dll
 *.so
 *.dylib
-# go.sum
+go.sum
+session/
+# .tmp/

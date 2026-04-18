@@ -2,10 +2,12 @@
 
 A production-grade, offline-first field service + LMS + settlement platform built with Go (Gin), GORM, and MySQL.
 
+docker-compose up --build
+
 ## Quick Start (Default: TLS Enabled)
 
 ```bash
-# Starts the stack with TLS enabled by default
+# Starts the stack with TLS enabled by default (HTTPS)
 docker-compose up --build
 ```
 
@@ -13,13 +15,16 @@ The API will be available at `https://localhost:8080`.
 
 ## Quick Start (Local HTTP Opt-Out)
 
-If you need plain HTTP for local debugging tools, explicitly disable TLS:
+If you need plain HTTP for local debugging tools or tests, explicitly disable TLS:
 
 ```bash
 ENABLE_TLS=false docker-compose up --build
 ```
 
 The API will be available at `http://localhost:8080`.
+
+> **Note:** All production and most development usage should use TLS (HTTPS). Only use `ENABLE_TLS=false` for local test/dev scenarios where HTTPS is not feasible.
+
 
 ## Quick Start (Production / TLS)
 
@@ -31,13 +36,19 @@ mkdir -p certs
 openssl req -x509 -newkey rsa:4096 -keyout certs/server.key -out certs/server.crt \
   -days 365 -nodes -subj "/CN=localhost"
 
-# 2. Start with TLS enabled
+# 2. Start with TLS enabled (default)
+docker-compose up --build
+# or, explicitly:
 ENABLE_TLS=true docker-compose up --build
 ```
 
 The API will be available at `https://localhost:8080`.
 
 > **Note:** The application will refuse to start if `ENABLE_TLS=true` but certificate files are missing.
+
+## Test/CI Usage
+
+Test scripts and CI may use `ENABLE_TLS=false` for speed and simplicity. This is only recommended for automated test runs, not for production or normal development.
 
 ## Default Credentials
 

@@ -14,6 +14,7 @@ UNIT_FAIL=0
 API_PASS=0
 API_FAIL=0
 
+
 # Step 0: Clean up any previous test state
 echo "[test][cleanup] Cleaning previous state..."
 ENABLE_TLS=false docker compose down -v 2>/dev/null || true
@@ -26,6 +27,8 @@ ENABLE_TLS=false docker compose --profile test build --quiet 2>&1
 echo "[test][infra] Starting MySQL and application..."
 ENABLE_TLS=false docker compose up -d mysql app
 echo "[test][infra] Waiting for services to be healthy..."
+
+# Note: ENABLE_TLS=false is used for test speed and simplicity only. For production and normal development, use the default (TLS enabled).
 
 # Wait for MySQL
 for i in $(seq 1 30); do

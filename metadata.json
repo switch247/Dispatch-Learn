@@ -1,5 +1,5 @@
 {
-  "project_type": "pure_backend",
+  "project_type": "server",
   "backend_framework": "gin",
   "backend_language": "go",
   "frontend_framework": "none",
