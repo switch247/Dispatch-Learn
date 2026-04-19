@@ -222,6 +222,10 @@ func (h *LMSHandler) CreateReaderArtifact(c *gin.Context) {
 		respondValidation(c, err.Error())
 		return
 	}
+	if artifact.ContentID == "" {
+		respondValidation(c, "content_id is required")
+		return
+	}
 
 	result, err := h.uc.CreateReaderArtifact(tenantID, userID, &artifact)
 	if err != nil {

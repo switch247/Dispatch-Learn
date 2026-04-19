@@ -18,9 +18,8 @@ const (
 var ValidTransitions = map[OrderStatus][]OrderStatus{
 	OrderCreated:    {OrderAvailable},
 	OrderAvailable:  {OrderAccepted, OrderExpired},
-	OrderAccepted:   {OrderInProgress, OrderCancelled, OrderReturned},
-	OrderInProgress: {OrderCompleted, OrderReturned},
-	OrderCancelled:  {OrderReturned},
+	OrderAccepted:   {OrderInProgress, OrderCancelled},
+	OrderInProgress: {OrderCompleted},
 }
 
 func (s OrderStatus) CanTransitionTo(target OrderStatus) bool {
@@ -129,7 +128,7 @@ type CreateOrderRequest struct {
 	ZipCode         string `json:"zip_code"`
 	TimeWindowStart string `json:"time_window_start"`
 	TimeWindowEnd   string `json:"time_window_end"`
-	AssignmentMode  string `json:"assignment_mode"`
+	AssignmentMode  string `json:"assignment_mode" binding:"omitempty,oneof=grab assigned"`
 	AssignedAgentID string `json:"assigned_agent_id"` // Required when assignment_mode == "assigned"
 	Priority        int    `json:"priority"`
 }

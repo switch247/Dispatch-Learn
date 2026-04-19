@@ -74,23 +74,21 @@ func (uc *FinanceUseCase) ListInvoices(tenantID string, page, perPage int) ([]do
 	return uc.repo.ListInvoices(tenantID, page, perPage)
 }
 
-func (uc *FinanceUseCase) IssueInvoice(tenantID, actorID, invoiceID string) error {
+func (uc *FinanceUseCase) IssueInvoice(tenantID, actorID, invoiceID string) (*domain.Invoice, error) {
 	invoice, err := uc.repo.FindInvoiceByID(tenantID, invoiceID)
 	if err != nil {
-		return errors.New("invoice not found")
+		return nil, errors.New("invoice not found")
 	}
 
 	if invoice.Status != domain.InvoiceDraft {
-		return errors.New("only draft invoices can be issued")
+		return nil, errors.New("only draft invoices can be issued")
 	}
 
 	now := time.Now()
-	invoice.IssuedAt = &now
 	due := now.AddDate(0, 0, 30)
-	invoice.DueAt = &due
 
-	if err := uc.repo.UpdateInvoiceStatus(tenantID, invoiceID, domain.InvoiceIssued); err != nil {
-		return err
+	if err := uc.repo.UpdateInvoiceIssued(tenantID, invoiceID, now, due); err != nil {
+		return nil, err
 	}
 
 	uc.audit.Log(audit.LogEntry{
@@ -103,7 +101,12 @@ func (uc *FinanceUseCase) IssueInvoice(tenantID, actorID, invoiceID string) erro
 		AfterState:  map[string]string{"status": string(domain.InvoiceIssued)},
 	})
 
-	return nil
+	// Fetch the updated invoice to ensure latest state is returned
+	updatedInvoice, err := uc.repo.FindInvoiceByID(tenantID, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+	return updatedInvoice, nil
 }
 
 // Payments (append-only)

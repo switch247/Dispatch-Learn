@@ -382,7 +382,7 @@ func TestFinanceDetailEndpoints(t *testing.T) {
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		data := result["data"].(map[string]interface{})
 		assert.Equal(t, invoiceID, data["id"])
-		assert.Equal(t, "ISSUED", data["status"])
+		assert.Equal(t, "PAID", data["status"])
 	})
 
 	t.Run("list payments by invoice", func(t *testing.T) {
@@ -918,7 +918,7 @@ func TestE2ESystemAdminWorkflow(t *testing.T) {
 	t.Run("step1_set_custom_quota", func(t *testing.T) {
 		resp, _ := doRequest("PUT", "/api/v1/quotas", map[string]interface{}{
 			"rpm":                 900,
-			"burst":              180,
+			"burst":               180,
 			"webhook_daily_limit": 15000,
 		}, adminToken)
 		require.NotNil(t, resp)

@@ -70,12 +70,13 @@ func (h *FinanceHandler) IssueInvoice(c *gin.Context) {
 	actorID := middleware.GetUserID(c)
 	id := c.Param("id")
 
-	if err := h.uc.IssueInvoice(tenantID, actorID, id); err != nil {
+	invoice, err := h.uc.IssueInvoice(tenantID, actorID, id)
+	if err != nil {
 		respondError(c, http.StatusBadRequest, "ISSUE_FAILED", err.Error())
 		return
 	}
 
-	respondOK(c, gin.H{"message": "invoice issued"})
+	respondOK(c, maskInvoice(invoice, canViewSensitiveFinance(c)))
 }
 
 // Payments

@@ -52,7 +52,7 @@ func respondError(c *gin.Context, status int, code, message string) {
 }
 
 func respondValidation(c *gin.Context, message string) {
-	respondError(c, http.StatusUnprocessableEntity, "VALIDATION_ERROR", message)
+	respondError(c, http.StatusBadRequest, "VALIDATION_ERROR", message)
 }
 
 func respondConflict(c *gin.Context, message string) {

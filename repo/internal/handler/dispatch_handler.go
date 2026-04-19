@@ -85,14 +85,19 @@ func (h *DispatchHandler) TransitionOrder(c *gin.Context) {
 
 	if err := h.uc.TransitionOrder(tenantID, actorID, orderID, domain.OrderStatus(req.Status)); err != nil {
 		if strings.Contains(err.Error(), "invalid transition") {
-			respondValidation(c, err.Error())
+			respondError(c, http.StatusUnprocessableEntity, "INVALID_TRANSITION", err.Error())
 			return
 		}
 		respondError(c, http.StatusBadRequest, "TRANSITION_FAILED", err.Error())
 		return
 	}
 
-	respondOK(c, gin.H{"message": "order status updated"})
+	order, err := h.uc.GetOrder(tenantID, orderID)
+	if err != nil {
+		respondError(c, http.StatusInternalServerError, "FETCH_FAILED", err.Error())
+		return
+	}
+	respondOK(c, order)
 }
 
 func (h *DispatchHandler) AcceptOrder(c *gin.Context) {
@@ -189,6 +194,10 @@ func (h *DispatchHandler) CreateAgentProfile(c *gin.Context) {
 
 	result, err := h.uc.CreateAgentProfile(tenantID, actorID, &profile)
 	if err != nil {
+		if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "Duplicate") {
+			respondConflict(c, "agent profile already exists for this user")
+			return
+		}
 		respondError(c, http.StatusBadRequest, "CREATE_FAILED", err.Error())
 		return
 	}

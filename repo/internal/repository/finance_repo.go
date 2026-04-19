@@ -50,6 +50,16 @@ func (r *FinanceRepository) UpdateInvoiceStatus(tenantID, id string, status doma
 		Update("status", status).Error
 }
 
+func (r *FinanceRepository) UpdateInvoiceIssued(tenantID, id string, issuedAt, dueAt time.Time) error {
+	return r.db.Model(&domain.Invoice{}).
+		Where("tenant_id = ? AND id = ?", tenantID, id).
+		Updates(map[string]interface{}{
+			"status":    domain.InvoiceIssued,
+			"issued_at": issuedAt,
+			"due_at":    dueAt,
+		}).Error
+}
+
 // Payments (append-only)
 func (r *FinanceRepository) CreatePayment(payment *domain.Payment) error {
 	return r.db.Create(payment).Error
